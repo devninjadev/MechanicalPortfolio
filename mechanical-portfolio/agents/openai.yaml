@@ -1,0 +1,14 @@
+interface:
+  display_name: 기계식 포트폴리오
+  short_description: 기계식 종목 선정과 리밸런싱, Notion 종가·기피 설정, 페이지 보고서
+  default_prompt: $mechanical-portfolio로 Notion 기피 목록을 반영해 기계식 포트폴리오를 만들고 종가는 Notion에
+    기록한 뒤 ChatGPT 페이지와 백테스트 차트로 보여줘.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
