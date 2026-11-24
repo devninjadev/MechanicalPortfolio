@@ -163,16 +163,34 @@ class MechanicalTests(unittest.TestCase):
         return dict(Ticker=symbol, MktCap_USD=cap, ADTV_90D_USD=adtv,
                     PSR=psr, **{"RevenueGrowth_YoY_Q_%": growth})
 
-    def test_rank_ties_and_exclusions_leave_raw_rank(self):
+    def test_rank_excludes_before_factors_and_preserves_ties(self):
         result = rank({"source_complete": True, "universe_verified": True,
-                       "exclusions": ["AAA"],
-                       "rows": [self.row("BBB"), self.row("AAA"), self.row("CCC", cap=10e9)]})
-        a, b, c = result["ranked"]
-        self.assertEqual([a["Ticker"], b["Ticker"], c["Ticker"]], ["AAA", "BBB", "CCC"])
-        self.assertEqual(c["ComponentRanks"]["MktCap_USD"], 3)
-        self.assertEqual(b["FinalRank"], 2)
-        self.assertEqual(b["EligibleRank"], 1)
-        self.assertIsNone(a["EligibleRank"])
+                       "exclusions": ["AAA"], "universe_exclusions": ["OIL"],
+                       "rows": [self.row("BBB"), self.row("AAA", cap=100e9),
+                                self.row("OIL", cap=200e9, psr=None),
+                                self.row("CCC"), self.row("DDD", cap=10e9)]})
+        b, c, d = result["ranked"]
+        self.assertEqual([b["Ticker"], c["Ticker"], d["Ticker"]], ["BBB", "CCC", "DDD"])
+        self.assertEqual([r["ComponentRanks"]["MktCap_USD"] for r in (b, c, d)], [1, 1, 3])
+        self.assertEqual([r["FinalRank"] for r in (b, c, d)], [1, 2, 3])
+        self.assertEqual(d["EligibleRank"], 3)
+        self.assertTrue(result["ranking_complete"])
+        self.assertEqual(result["excluded_rows"], [
+            {"Ticker": "AAA", "reasons": ["manual_exclusion"]},
+            {"Ticker": "OIL", "reasons": ["universe_policy_exclusion"]},
+        ])
+
+    def test_policy_excluded_holding_is_not_a_missing_data_case(self):
+        policy = {"universe_exclusions": ["OIL"]}
+        result = rank({"source_complete": True, "universe_verified": True, **policy,
+                       "rows": [self.row("OIL"), self.row("NEW")]})
+        plan = decision_plan({**result, **policy, "holdings": ["OIL"], "target_size": 1})
+        self.assertEqual(plan["pending"], [])
+        self.assertEqual(plan["composition_trades"], [
+            {"side": "SELL", "Ticker": "OIL", "reason": "universe_policy_exclusion"},
+            {"side": "BUY", "Ticker": "NEW", "reason": "fill_vacancy"},
+        ])
+        self.assertFalse(plan["fills_confirmed"])
 
     def test_rank_partial_and_duplicate_inputs_stop(self):
         for kwargs in [{"source_complete": False}, {"universe_verified": False}]:

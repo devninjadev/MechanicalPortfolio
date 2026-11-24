@@ -46,6 +46,7 @@ rank/decision-plan에 함께 전달한다. `exclusions=[]`도 유효한 설정�
   "source_complete": true,
   "universe_verified": true,
   "exclusions": [],
+  "universe_exclusions": [],
   "rows": [{"Ticker":"AAA","Company":"Example","SymbolFull":"NASDAQ:AAA",
     "MktCap_USD":20000000000,"ADTV_90D_USD":300000000,
     "PSR":2.5,"RevenueGrowth_YoY_Q_%":12}]
@@ -53,9 +54,14 @@ rank/decision-plan에 함께 전달한다. `exclusions=[]`도 유효한 설정�
 ```
 
 숫자는 단위를 변환한 값이며 이미 전체 스크리너 조건을 검증한 행이다.
-예시 1행 자체는 실제 전체 시장 근거가 아니다. 결측을 먼저 Yahoo로 보정한다.
-`exclusions=[]`는 수동 제외가 없는 설정을 뜻한다. 출력의 `ranked`, `data_gaps`,
-`ranking_complete`를 읽는다. 결측이 있는 결과는 순위 확정에 사용하지 않는다.
+예시 1행 자체는 실제 전체 시장 근거가 아니다.
+결측은 [스크리너 보완 절차](screener.md#순위-필드-결측-보완)의
+Yahoo·연결된 MCP·웹 검색으로 보완한 뒤 전달한다.
+`exclusions`는 판단 시각의 수동 제외, `universe_exclusions`는 같은 시각에
+유효한 허브 규칙으로 실제 분류를 확인한 티커다. 빈 배열은 조회와 적용 기간을 확인한
+뒤 전달한다. 두 목록은 요인별 계산 전에 제거되며 `excluded_rows`에는 티커와 사유가
+남는다. 나머지 전체로 다시 매긴 `FinalRank`를 사용한다. 출력의 `ranked`,
+`data_gaps`, `ranking_complete`를 읽고 결측이 있는 결과로 순위를 확정하지 않는다.
 명시적·근거 있는 필터 탈락은 입력 전 별도 확인 목록으로 보존한다.
 
 ## decision-plan
@@ -63,7 +69,8 @@ rank/decision-plan에 함께 전달한다. `exclusions=[]`도 유효한 설정�
 입력: `ranked`는 rank 결과, `ranking_complete`는 그 결과의 동일 필드,
 `holdings`는 확인된 기존 티커 배열, `verified_universe_exits`는 실제 필터 탈락이
 확인된 티커만, `monthly_due`는 달력과 원장으로 확인한 이번 정기 조정 필요 여부다.
-`exclusions`, `target_size=15`, `buffer_rank=20`을 바꿀 수 있다.
+rank에 사용한 `exclusions`, `universe_exclusions`를 그대로 전달한다.
+`target_size=15`, `buffer_rank=20`은 사용자 지정에 맞춰 바꿀 수 있다.
 반환은 구성 교체 `composition_trades`, 보류 종목, 목표 구성, 비중 처리 방식이다.
 구성 교체가 비어 있어도 월간 비중 조정은 필요할 수 있다. 헬퍼는 수량과 가격을
 받지 않으므로 비중 조정 주문·원장 이벤트를 계산했다고 주장하지 않는다.

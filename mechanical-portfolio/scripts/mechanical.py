@@ -73,8 +73,8 @@ def ticker(value):
     return value
 
 
-def exclusions(payload):
-    values = payload.get("exclusions", DEFAULT_EXCLUSIONS)
+def exclusions(payload, key="exclusions"):
+    values = payload.get(key, DEFAULT_EXCLUSIONS)
     require(isinstance(values, (list, tuple, dict)), "invalid_exclusions")
     return {ticker(v) for v in values}
 
@@ -137,11 +137,19 @@ def rank(payload):
     require(payload.get("universe_verified") is True, "unverified_universe")
     raw = payload.get("rows")
     require(isinstance(raw, list) and bool(raw), "rows_required")
-    seen, rows, gaps = set(), [], []
+    manual = exclusions(payload)
+    universe = exclusions(payload, "universe_exclusions")
+    seen, rows, gaps, excluded_rows = set(), [], [], []
     for raw_row in raw:
         symbol = ticker(raw_row.get("Ticker"))
         require(symbol not in seen, "duplicate_ticker")
         seen.add(symbol)
+        reasons = [reason for members, reason in (
+            (manual, "manual_exclusion"), (universe, "universe_policy_exclusion")
+        ) if symbol in members]
+        if reasons:
+            excluded_rows.append({"Ticker": symbol, "reasons": reasons})
+            continue
         row = dict(raw_row, Ticker=symbol, ComponentRanks={})
         bad = []
         for field in FIELDS:
@@ -153,7 +161,7 @@ def rank(payload):
             gaps.append({"Ticker": symbol, "fields": bad})
         else:
             rows.append(row)
-    require(bool(rows), "no_valid_rows")
+    require(bool(rows) or not gaps, "no_valid_rows")
     for idx, field in enumerate(FIELDS):
         values = sorted((r[field] for r in rows), reverse=field != "PSR")
         ranks = {}
@@ -167,16 +175,14 @@ def rank(payload):
                                     for w, f in zip(WEIGHTS, FIELDS))
         row["CombinedRank"] = row["ScoreNumerator"] / 100
     rows.sort(key=lambda r: (r["ScoreNumerator"], -r["MktCap_USD"], r["Ticker"]))
-    excluded, eligible_rank = exclusions(payload), 0
     for pos, row in enumerate(rows, 1):
         row["FinalRank"] = pos
-        row["ManualExcluded"] = row["Ticker"] in excluded
-        row["EligibleRank"] = None
-        if not row["ManualExcluded"]:
-            eligible_rank += 1
-            row["EligibleRank"] = eligible_rank
+        # Retain the legacy output fields for existing readers.
+        row["EligibleRank"] = pos
+        row["ManualExcluded"] = False
     return {"ranked": rows, "input_count": len(raw), "valid_count": len(rows),
-            "data_gaps": gaps, "ranking_complete": not gaps}
+            "excluded_rows": excluded_rows, "data_gaps": gaps,
+            "ranking_complete": not gaps}
 
 
 def decision_plan(payload):
@@ -198,6 +204,7 @@ def decision_plan(payload):
         require(symbol not in lookup and pos not in ranks, "duplicate_rank_or_ticker")
         lookup[symbol], _ = row, ranks.add(pos)
     excluded = exclusions(payload)
+    universe_excluded = exclusions(payload, "universe_exclusions")
     exits = {ticker(v) for v in payload.get("verified_universe_exits", [])}
     keep, pending, trades = [], [], []
     for symbol in holdings:
@@ -205,6 +212,8 @@ def decision_plan(payload):
         reason = None
         if symbol in excluded:
             reason = "manual_exclusion"
+        elif symbol in universe_excluded:
+            reason = "universe_policy_exclusion"
         elif symbol in exits:
             reason = "verified_universe_exit"
         elif row is None:
@@ -222,7 +231,8 @@ def decision_plan(payload):
             if len(next_holdings) >= target:
                 break
             symbol = ticker(row["Ticker"])
-            if symbol in holdings or symbol in excluded or row.get("ManualExcluded"):
+            if (symbol in holdings or symbol in excluded or symbol in universe_excluded
+                    or row.get("ManualExcluded")):
                 continue
             next_holdings.append(symbol)
             trades.append({"side": "BUY", "Ticker": symbol, "reason": "fill_vacancy"})
